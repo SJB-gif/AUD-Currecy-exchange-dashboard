@@ -21,24 +21,6 @@ Designed for monitoring exchange-rate trends over time, identifying favourable c
 
 No installation is required.
 
-### GitHub Pages Version
-
-1. Upload all repository files to GitHub.
-2. Open **Settings → Pages**
-3. Configure:
-   - Source: **Deploy from a branch**
-   - Branch: **main**
-   - Folder: **/** (root)
-4. Save the configuration.
-
-GitHub will generate a URL similar to:
-
-```
-https://yourusername.github.io/repository-name/
-```
-
-The dashboard will automatically update whenever changes are committed to the repository.
-
 ## Home Screen and Desktop Shortcuts
 
 ### Android
