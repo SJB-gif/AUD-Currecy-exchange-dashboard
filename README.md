@@ -69,13 +69,3 @@ Use the **Export** button to create a JSON backup of all stored history.
 Use the **Import** button to restore a previous backup.
 
 Imported data is automatically merged and sorted chronologically.
-
-## Future Enhancements
-
-Potential future improvements include:
-
-- Progressive Web App (PWA) support
-- Push notifications for new 90-day highs
-- Configurable polling intervals
-- Additional currency support
-- Cloud-based synchronisation
