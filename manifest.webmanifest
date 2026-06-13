@@ -1,24 +1,12 @@
 {
-  "name": "AUD Exchange Rate Dashboard",
+  "name": "AUD Exchange Dashboard",
   "short_name": "AUD Rates",
-  "description": "AUD exchange rate dashboard with local history, multi-axis chart, and 90-day high detection.",
   "start_url": "./",
-  "scope": "./",
   "display": "standalone",
   "background_color": "#f7f9fc",
   "theme_color": "#08264a",
   "icons": [
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
