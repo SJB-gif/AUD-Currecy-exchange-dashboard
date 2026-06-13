@@ -167,14 +167,70 @@ function beginningOfLocalWeek(ms) { const d = new Date(ms); const day = d.getDay
 function beginningOfLocalMonth(ms) { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
 function averageGroup(records, bucketFn) { const groups = new Map(); for (const r of records) { const key = bucketFn(recordTimeMs(r)); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(r); } return [...groups.entries()].map(([bucket, items]) => { const rates = {}; for (const code of selected) rates[code] = items.reduce((sum, r) => sum + r.rates[code], 0) / items.length; return { date: localIsoDate(Number(bucket)), fetchedAt: new Date(Number(bucket)).toISOString(), rates }; }).sort((a,b) => recordTimeMs(a)-recordTimeMs(b)); }
 function chooseHourlyWindow(records, nowMs) { const windows = [6, 8, 24]; for (const hours of windows) { const cutoff = nowMs - hours*60*60*1000; const filtered = records.filter(r => recordTimeMs(r) >= cutoff); if (filtered.length >= 2) return { hours, records: filtered }; } const cutoff = nowMs - 24*60*60*1000; return { hours:24, records: records.filter(r => recordTimeMs(r) >= cutoff) }; }
-function chartHistory() { const records = loadHistory().filter(r => selected.every(code => typeof r.rates?.[code] === 'number')); const nowMs = records.length ? recordTimeMs(records[records.length-1]) : Date.now(); if (chartScale === 'H') return chooseHourlyWindow(records, nowMs).records; if (chartScale === 'D') return averageGroup(records.filter(r => recordTimeMs(r) >= nowMs - 10*24*60*60*1000), beginningOfLocalDay); if (chartScale === 'W') return averageGroup(records.filter(r => recordTimeMs(r) >= nowMs - 3*7*24*60*60*1000), beginningOfLocalWeek); return averageGroup(records.filter(r => recordTimeMs(r) >= nowMs - 92*24*60*60*1000), beginningOfLocalMonth); }
-function chartXRange(history) { const nowMs = history.length ? recordTimeMs(history[history.length-1]) : Date.now(); if (chartScale === 'H') { const chosen = chooseHourlyWindow(loadHistory().filter(r => selected.every(code => typeof r.rates?.[code] === 'number')), nowMs); return { min: nowMs - chosen.hours*60*60*1000, max: nowMs, label: `hourly view: last ${chosen.hours} hours` }; } if (chartScale === 'D') return { min: beginningOfLocalDay(nowMs - 10*24*60*60*1000), max: nowMs, label:'daily view: last 10 days, averaged by day' }; if (chartScale === 'W') return { min: beginningOfLocalWeek(nowMs - 3*7*24*60*60*1000), max: nowMs, label:'weekly view: last 3 weeks, averaged by week' }; return { min: beginningOfLocalMonth(nowMs - 92*24*60*60*1000), max: nowMs, label:'monthly view: last 3 months, averaged by month' }; }
+function displayAnchorRecord(records, xMin, visibleRecords) {
+  if (!records.length || !visibleRecords.length) return [];
+  const firstVisibleMs = recordTimeMs(visibleRecords[0]);
+  const prior = [...records].reverse().find(r => recordTimeMs(r) < firstVisibleMs);
+  const source = prior || visibleRecords[0];
+  const anchor = { date: localIsoDate(xMin), fetchedAt: new Date(xMin).toISOString(), rates: { ...source.rates }, _anchor:true };
+  const cleaned = visibleRecords.filter(r => recordTimeMs(r) > xMin + 1);
+  return [anchor, ...cleaned];
+}
+function chartDataset() {
+  const records = loadHistory().filter(r => selected.every(code => typeof r.rates?.[code] === 'number'));
+  const nowMs = records.length ? recordTimeMs(records[records.length-1]) : Date.now();
+  let xMin, xMax, label, visible;
+  if (chartScale === 'H') {
+    const chosen = chooseHourlyWindow(records, nowMs);
+    xMin = nowMs - chosen.hours*60*60*1000;
+    xMax = nowMs;
+    label = `hourly view: last ${chosen.hours} hours, anchored from the most recent prior poll`;
+    visible = records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
+  } else if (chartScale === 'D') {
+    xMin = beginningOfLocalDay(nowMs - 10*24*60*60*1000);
+    xMax = nowMs;
+    label = 'daily view: last 10 days, averaged by day and anchored from the prior value';
+    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalDay);
+  } else if (chartScale === 'W') {
+    xMin = beginningOfLocalWeek(nowMs - 3*7*24*60*60*1000);
+    xMax = nowMs;
+    label = 'weekly view: last 3 weeks, averaged by week and anchored from the prior value';
+    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalWeek);
+  } else {
+    xMin = beginningOfLocalMonth(nowMs - 92*24*60*60*1000);
+    xMax = nowMs;
+    label = 'monthly view: last 3 months, averaged by month and anchored from the prior value';
+    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalMonth);
+  }
+  const history = displayAnchorRecord(records, xMin, visible);
+  return { history, xRange:{ min:xMin, max:xMax, label } };
+}
 function tickLabel(value) { const d = new Date(value); if (chartScale === 'H') return d.toLocaleString(undefined, { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' }); if (chartScale === 'D') return d.toLocaleDateString(undefined, { day:'numeric', month:'short' }); if (chartScale === 'W') return 'Wk ' + d.toLocaleDateString(undefined, { day:'numeric', month:'short' }); return d.toLocaleDateString(undefined, { month:'short', year:'2-digit' }); }
 function setChartScale(scale) { chartScale=scale; localStorage.setItem(SCALE_KEY, scale); renderChart(); if (latest) renderTable(latest); }
 function updateScaleButtons() { ['M','W','D','H'].forEach(s => { const b=document.getElementById('scale'+s); if (b) b.classList.toggle('active', chartScale===s); }); }
-function renderChart() { const history = chartHistory(); const ctx = document.getElementById('rateChart'); if (chart) chart.destroy(); updateScaleButtons(); const xr = chartXRange(history); document.getElementById('chartNote').textContent = `${xr.label} · ` + selected.map((c,i)=>`${PALETTE[i].name} ${c}`).join(', ') + ' · each currency uses its own Y-axis.'; if (!history.length) return; const scales = { x:{ type:'linear', min:xr.min, max:xr.max, grid:{ color:'#d7dde6' }, ticks:{ callback:v => tickLabel(v), font:{ weight:'700' }, maxRotation:45, minRotation:0 } } }; selected.forEach((code,i) => { const p=PALETTE[i], range=axisRange(history.map(r => r.rates[code])); scales[p.axis] = { type:'linear', position:p.position, offset:i===1, min:range.min, max:range.max, ticks:{ color:p.colour, callback:v => Number(v).toFixed(decimals(code)), font:{ weight:'800' } }, title:{ display:true, text:`AUD → ${code}`, color:p.colour, font:{ weight:'900' } }, grid:{ drawOnChartArea:i===0, color:'#d7dde6' } }; }); chart = new Chart(ctx, { type:'line', data:{ datasets:selected.map((code,i) => { const p=PALETTE[i]; return { label:`AUD → ${code}`, data:history.map(r => ({ x:recordTimeMs(r), y:r.rates[code] })), borderColor:p.colour, backgroundColor:p.colour, yAxisID:p.axis, tension:.25, pointRadius:4, pointHoverRadius:7, borderWidth:3 }; }) }, options:{ responsive:true, maintainAspectRatio:false, parsing:false, interaction:{ mode:'nearest', intersect:false }, plugins:{ legend:{ position:'bottom' }, tooltip:{ callbacks:{ title:items => items.length ? new Date(items[0].parsed.x).toLocaleString() : '', label:ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}` } } }, scales } }); }
+function renderChart() {
+  const { history, xRange:xr } = chartDataset();
+  const ctx = document.getElementById('rateChart');
+  if (chart) chart.destroy();
+  updateScaleButtons();
+  document.getElementById('chartNote').textContent = `${xr.label} · ` + selected.map((c,i)=>`${PALETTE[i].name} ${c}`).join(', ') + ' · each currency uses its own Y-axis.';
+  if (!history.length) return;
+  const scales = { x:{ type:'linear', min:xr.min, max:xr.max, offset:false, bounds:'ticks', grid:{ color:'#d7dde6' }, ticks:{ callback:v => tickLabel(v), font:{ weight:'700' }, maxRotation:45, minRotation:0 } } };
+  selected.forEach((code,i) => {
+    const p=PALETTE[i], range=axisRange(history.map(r => r.rates[code]));
+    scales[p.axis] = { type:'linear', position:p.position, offset:i===1, min:range.min, max:range.max, ticks:{ color:p.colour, callback:v => Number(v).toFixed(decimals(code)), font:{ weight:'800' } }, title:{ display:true, text:`AUD → ${code}`, color:p.colour, font:{ weight:'900' } }, grid:{ drawOnChartArea:i===0, color:'#d7dde6' } };
+  });
+  chart = new Chart(ctx, {
+    type:'line',
+    data:{ datasets:selected.map((code,i) => {
+      const p=PALETTE[i];
+      return { label:`AUD → ${code}`, data:history.map(r => ({ x:recordTimeMs(r), y:r.rates[code] })), borderColor:p.colour, backgroundColor:p.colour, yAxisID:p.axis, tension:.25, pointRadius:ctx => ctx.raw && ctx.raw.x === xr.min ? 0 : 4, pointHoverRadius:7, borderWidth:3, spanGaps:false, clip:false };
+    }) },
+    options:{ responsive:true, maintainAspectRatio:false, parsing:false, interaction:{ mode:'nearest', intersect:false }, plugins:{ legend:{ position:'bottom' }, tooltip:{ callbacks:{ title:items => items.length ? new Date(items[0].parsed.x).toLocaleString() : '', label:ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(4)}` } } }, scales }
+  });
+}
 
-async function refreshAll(autoRecord=true) { try { document.getElementById('status').textContent='Fetching current, prior-fortnight, and previous 90-day data...'; latest = await fetchCurrentAndBest(); prior7 = await getPriorRates(latest.date, 7); prior14 = await getPriorRates(latest.date, 14); document.getElementById('dateLine').textContent = `Latest fetch: ${new Date().toLocaleString()} · Rate date: ${prettyDate(latest.date)} · Source: Frankfurter reference rates`; renderTable(latest); renderAlerts(latest); if (autoRecord) upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `The table shows the latest fetched rates. The current-rate indicator compares against the most recent previous stored value that was different. History is auto-sorted by fetchedAt and saved locally. Graph views use a linear time axis: H auto-selects 6/8/24 hours, D/W/M aggregate averages by day/week/month.`; } catch(err) { document.getElementById('status').textContent = `Error: ${err.message}. Check network/API access and try Refresh now.`; console.error(err); } }
+async function refreshAll(autoRecord=true) { try { document.getElementById('status').textContent='Fetching current, prior-fortnight, and previous 90-day data...'; latest = await fetchCurrentAndBest(); prior7 = await getPriorRates(latest.date, 7); prior14 = await getPriorRates(latest.date, 14); document.getElementById('dateLine').textContent = `Latest fetch: ${new Date().toLocaleString()} · Rate date: ${prettyDate(latest.date)} · Source: Frankfurter reference rates`; renderTable(latest); renderAlerts(latest); if (autoRecord) upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `The table shows the latest fetched rates. The current-rate indicator compares against the most recent previous stored value that was different. History is auto-sorted by fetchedAt and saved locally. Graph views use a linear time axis: H auto-selects 6/8/24 hours, D/W/M aggregate averages by day/week/month, and each plot is anchored to the Y-axis using the most recent prior stored value.`; } catch(err) { document.getElementById('status').textContent = `Error: ${err.message}. Check network/API access and try Refresh now.`; console.error(err); } }
 async function recordLatestOnly() { if (!latest) await refreshAll(false); upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `Recorded ${prettyDate(latest.date)} in local browser history.`; }
 function clearHistory() { if (!confirm('Clear all locally saved exchange-rate history?')) return; localStorage.removeItem(STORAGE_KEY); renderChart(); document.getElementById('status').textContent='Local history cleared.'; }
 function exportHistory() { const blob = new Blob([JSON.stringify(loadHistory(), null, 2)], { type:'application/json' }); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='aud-exchange-history.json'; a.click(); URL.revokeObjectURL(a.href); }
