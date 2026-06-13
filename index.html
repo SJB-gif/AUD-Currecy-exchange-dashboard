@@ -183,12 +183,19 @@ function chooseHourlyWindow(records, nowMs) {
   const cutoff = nowMs - 24*60*60*1000;
   return { hours:24, records: records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs) };
 }
-function rangeStartFromData(firstMs, rightMs, targetSpanMs) {
-  if (!Number.isFinite(firstMs)) return rightMs - targetSpanMs;
-  const visibleSpan = rightMs - firstMs;
-  // If the selected data fills most of the requested view, start at the first point.
-  // If it is sparse, keep the full requested scale and anchor the line to the Y-axis with the prior value.
-  return visibleSpan >= targetSpanMs * 0.70 ? firstMs : rightMs - targetSpanMs;
+function padUnitMsForScale(scale) {
+  if (scale === 'H') return 60*60*1000;
+  if (scale === 'D') return 24*60*60*1000;
+  if (scale === 'W') return 3*24*60*60*1000;
+  return 7*24*60*60*1000;
+}
+function paddedRange(firstMs, lastMs, scale, fallbackSpanMs) {
+  const pad = padUnitMsForScale(scale);
+  if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs)) {
+    const right = Date.now() + pad;
+    return { min: right - fallbackSpanMs, max: right };
+  }
+  return { min: firstMs - pad, max: lastMs + pad };
 }
 function displayAnchorRecord(records, xMin, visibleRecords) {
   if (!records.length || !visibleRecords.length) return [];
@@ -202,48 +209,50 @@ function displayAnchorRecord(records, xMin, visibleRecords) {
 function chartDataset() {
   const records = loadHistory().filter(r => selected.every(code => typeof r.rates?.[code] === 'number'));
   const nowMs = records.length ? recordTimeMs(records[records.length-1]) : Date.now();
-  let xMin, xMax, label, visible, firstMs;
+  let xMin, xMax, label, visible;
   if (chartScale === 'H') {
     const chosen = chooseHourlyWindow(records, nowMs);
     const real = chosen.records;
     const lastMs = real.length ? recordTimeMs(real[real.length-1]) : nowMs;
-    xMax = lastMs + 60*60*1000;
-    firstMs = real.length ? recordTimeMs(real[0]) : lastMs;
-    const targetSpan = (chosen.hours + 1) * 60*60*1000;
-    xMin = rangeStartFromData(firstMs, xMax, targetSpan);
+    const firstMs = real.length ? recordTimeMs(real[0]) : lastMs;
+    const range = paddedRange(firstMs, lastMs, 'H', chosen.hours*60*60*1000);
+    xMin = range.min;
+    xMax = range.max;
     visible = records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
-    label = `hourly view: ${chosen.hours} hour scale, from ${tickLabel(xMin)} to ${tickLabel(xMax)}, anchored from the most recent prior poll`;
+    label = `hourly view: ${chosen.hours} hour scale, first point minus 1 hour to latest point plus 1 hour`;
   } else if (chartScale === 'D') {
     const cutoff = beginningOfLocalDay(nowMs - 10*24*60*60*1000);
     const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
     const grouped = averageGroup(raw, beginningOfLocalDay);
     const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalDay(nowMs);
     const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalDay(nowMs);
-    xMax = lastBucket + 24*60*60*1000;
-    xMin = rangeStartFromData(firstBucket, xMax, 10*24*60*60*1000);
+    const range = paddedRange(firstBucket, lastBucket, 'D', 10*24*60*60*1000);
+    xMin = range.min;
+    xMax = range.max;
     visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
-    label = 'daily view: last 10-day scale, averaged by day and anchored from the prior value';
+    label = 'daily view: last 10 days, averaged by day, first day minus 1 day to latest day plus 1 day';
   } else if (chartScale === 'W') {
     const cutoff = beginningOfLocalWeek(nowMs - 3*7*24*60*60*1000);
     const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
     const grouped = averageGroup(raw, beginningOfLocalWeek);
     const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalWeek(nowMs);
     const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalWeek(nowMs);
-    xMax = lastBucket + 7*24*60*60*1000;
-    xMin = rangeStartFromData(firstBucket, xMax, 3*7*24*60*60*1000);
+    const range = paddedRange(firstBucket, lastBucket, 'W', 3*7*24*60*60*1000);
+    xMin = range.min;
+    xMax = range.max;
     visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
-    label = 'weekly view: last 3-week scale, averaged by week and anchored from the prior value';
+    label = 'weekly view: last 3 weeks, averaged by week, first week minus 3 days to latest week plus 3 days';
   } else {
     const cutoff = beginningOfLocalMonth(addMonthsMs(nowMs, -3));
     const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
     const grouped = averageGroup(raw, beginningOfLocalMonth);
     const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalMonth(nowMs);
     const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalMonth(nowMs);
-    xMax = addMonthsMs(lastBucket, 1);
-    const threeMonthSpan = addMonthsMs(xMax, -3);
-    xMin = (xMax - firstBucket) >= (xMax - threeMonthSpan) * 0.70 ? firstBucket : threeMonthSpan;
+    const range = paddedRange(firstBucket, lastBucket, 'M', 90*24*60*60*1000);
+    xMin = range.min;
+    xMax = range.max;
     visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
-    label = 'monthly view: last 3-month scale, averaged by month and anchored from the prior value';
+    label = 'monthly view: last 3 months, averaged by month, first month minus 1 week to latest month plus 1 week';
   }
   const history = displayAnchorRecord(records, xMin, visible);
   return { history, xRange:{ min:xMin, max:xMax, label } };
@@ -273,7 +282,7 @@ function renderChart() {
   });
 }
 
-async function refreshAll(autoRecord=true) { try { document.getElementById('status').textContent='Fetching current, prior-fortnight, and previous 90-day data...'; latest = await fetchCurrentAndBest(); prior7 = await getPriorRates(latest.date, 7); prior14 = await getPriorRates(latest.date, 14); document.getElementById('dateLine').textContent = `Latest fetch: ${new Date().toLocaleString()} · Rate date: ${prettyDate(latest.date)} · Source: Frankfurter reference rates`; renderTable(latest); renderAlerts(latest); if (autoRecord) upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `The table shows the latest fetched rates. The current-rate indicator compares against the most recent previous stored value that was different. History is auto-sorted by fetchedAt and saved locally. Graph views use a linear time axis: H auto-selects 6/8/24 hours, D/W/M aggregate averages by day/week/month, and each plot is anchored to the Y-axis using the most recent prior stored value.`; } catch(err) { document.getElementById('status').textContent = `Error: ${err.message}. Check network/API access and try Refresh now.`; console.error(err); } }
+async function refreshAll(autoRecord=true) { try { document.getElementById('status').textContent='Fetching current, prior-fortnight, and previous 90-day data...'; latest = await fetchCurrentAndBest(); prior7 = await getPriorRates(latest.date, 7); prior14 = await getPriorRates(latest.date, 14); document.getElementById('dateLine').textContent = `Latest fetch: ${new Date().toLocaleString()} · Rate date: ${prettyDate(latest.date)} · Source: Frankfurter reference rates`; renderTable(latest); renderAlerts(latest); if (autoRecord) upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `The table shows the latest fetched rates. The current-rate indicator compares against the most recent previous stored value that was different. History is auto-sorted by fetchedAt and saved locally. Graph views use a linear time axis: H auto-selects 6/8/24 hours, D/W/M aggregate averages by day/week/month. The x-axis is padded from the earliest point and beyond the latest point so the current data sits naturally within the graph, with each plot anchored to the Y-axis using the most recent prior stored value.`; } catch(err) { document.getElementById('status').textContent = `Error: ${err.message}. Check network/API access and try Refresh now.`; console.error(err); } }
 async function recordLatestOnly() { if (!latest) await refreshAll(false); upsertHistory(latest.date, latest.rates); renderChart(); document.getElementById('status').textContent = `Recorded ${prettyDate(latest.date)} in local browser history.`; }
 function clearHistory() { if (!confirm('Clear all locally saved exchange-rate history?')) return; localStorage.removeItem(STORAGE_KEY); renderChart(); document.getElementById('status').textContent='Local history cleared.'; }
 function exportHistory() { const blob = new Blob([JSON.stringify(loadHistory(), null, 2)], { type:'application/json' }); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='aud-exchange-history.json'; a.click(); URL.revokeObjectURL(a.href); }
