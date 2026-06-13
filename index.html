@@ -166,7 +166,30 @@ function beginningOfLocalDay(ms) { const d = new Date(ms); return new Date(d.get
 function beginningOfLocalWeek(ms) { const d = new Date(ms); const day = d.getDay(); return new Date(d.getFullYear(), d.getMonth(), d.getDate() - day).getTime(); }
 function beginningOfLocalMonth(ms) { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
 function averageGroup(records, bucketFn) { const groups = new Map(); for (const r of records) { const key = bucketFn(recordTimeMs(r)); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(r); } return [...groups.entries()].map(([bucket, items]) => { const rates = {}; for (const code of selected) rates[code] = items.reduce((sum, r) => sum + r.rates[code], 0) / items.length; return { date: localIsoDate(Number(bucket)), fetchedAt: new Date(Number(bucket)).toISOString(), rates }; }).sort((a,b) => recordTimeMs(a)-recordTimeMs(b)); }
-function chooseHourlyWindow(records, nowMs) { const windows = [6, 8, 24]; for (const hours of windows) { const cutoff = nowMs - hours*60*60*1000; const filtered = records.filter(r => recordTimeMs(r) >= cutoff); if (filtered.length >= 2) return { hours, records: filtered }; } const cutoff = nowMs - 24*60*60*1000; return { hours:24, records: records.filter(r => recordTimeMs(r) >= cutoff) }; }
+function addMonthsMs(ms, months) { const d = new Date(ms); d.setMonth(d.getMonth()+months); return d.getTime(); }
+function unitMsForScale(scale) {
+  if (scale === 'H') return 60*60*1000;
+  if (scale === 'D') return 24*60*60*1000;
+  if (scale === 'W') return 7*24*60*60*1000;
+  return 30*24*60*60*1000;
+}
+function chooseHourlyWindow(records, nowMs) {
+  const windows = [6, 8, 24];
+  for (const hours of windows) {
+    const cutoff = nowMs - hours*60*60*1000;
+    const filtered = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
+    if (filtered.length >= 2) return { hours, records: filtered };
+  }
+  const cutoff = nowMs - 24*60*60*1000;
+  return { hours:24, records: records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs) };
+}
+function rangeStartFromData(firstMs, rightMs, targetSpanMs) {
+  if (!Number.isFinite(firstMs)) return rightMs - targetSpanMs;
+  const visibleSpan = rightMs - firstMs;
+  // If the selected data fills most of the requested view, start at the first point.
+  // If it is sparse, keep the full requested scale and anchor the line to the Y-axis with the prior value.
+  return visibleSpan >= targetSpanMs * 0.70 ? firstMs : rightMs - targetSpanMs;
+}
 function displayAnchorRecord(records, xMin, visibleRecords) {
   if (!records.length || !visibleRecords.length) return [];
   const firstVisibleMs = recordTimeMs(visibleRecords[0]);
@@ -179,28 +202,48 @@ function displayAnchorRecord(records, xMin, visibleRecords) {
 function chartDataset() {
   const records = loadHistory().filter(r => selected.every(code => typeof r.rates?.[code] === 'number'));
   const nowMs = records.length ? recordTimeMs(records[records.length-1]) : Date.now();
-  let xMin, xMax, label, visible;
+  let xMin, xMax, label, visible, firstMs;
   if (chartScale === 'H') {
     const chosen = chooseHourlyWindow(records, nowMs);
-    xMin = nowMs - chosen.hours*60*60*1000;
-    xMax = nowMs;
-    label = `hourly view: last ${chosen.hours} hours, anchored from the most recent prior poll`;
+    const real = chosen.records;
+    const lastMs = real.length ? recordTimeMs(real[real.length-1]) : nowMs;
+    xMax = lastMs + 60*60*1000;
+    firstMs = real.length ? recordTimeMs(real[0]) : lastMs;
+    const targetSpan = (chosen.hours + 1) * 60*60*1000;
+    xMin = rangeStartFromData(firstMs, xMax, targetSpan);
     visible = records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
+    label = `hourly view: ${chosen.hours} hour scale, from ${tickLabel(xMin)} to ${tickLabel(xMax)}, anchored from the most recent prior poll`;
   } else if (chartScale === 'D') {
-    xMin = beginningOfLocalDay(nowMs - 10*24*60*60*1000);
-    xMax = nowMs;
-    label = 'daily view: last 10 days, averaged by day and anchored from the prior value';
-    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalDay);
+    const cutoff = beginningOfLocalDay(nowMs - 10*24*60*60*1000);
+    const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
+    const grouped = averageGroup(raw, beginningOfLocalDay);
+    const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalDay(nowMs);
+    const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalDay(nowMs);
+    xMax = lastBucket + 24*60*60*1000;
+    xMin = rangeStartFromData(firstBucket, xMax, 10*24*60*60*1000);
+    visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
+    label = 'daily view: last 10-day scale, averaged by day and anchored from the prior value';
   } else if (chartScale === 'W') {
-    xMin = beginningOfLocalWeek(nowMs - 3*7*24*60*60*1000);
-    xMax = nowMs;
-    label = 'weekly view: last 3 weeks, averaged by week and anchored from the prior value';
-    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalWeek);
+    const cutoff = beginningOfLocalWeek(nowMs - 3*7*24*60*60*1000);
+    const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
+    const grouped = averageGroup(raw, beginningOfLocalWeek);
+    const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalWeek(nowMs);
+    const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalWeek(nowMs);
+    xMax = lastBucket + 7*24*60*60*1000;
+    xMin = rangeStartFromData(firstBucket, xMax, 3*7*24*60*60*1000);
+    visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
+    label = 'weekly view: last 3-week scale, averaged by week and anchored from the prior value';
   } else {
-    xMin = beginningOfLocalMonth(nowMs - 92*24*60*60*1000);
-    xMax = nowMs;
-    label = 'monthly view: last 3 months, averaged by month and anchored from the prior value';
-    visible = averageGroup(records.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax), beginningOfLocalMonth);
+    const cutoff = beginningOfLocalMonth(addMonthsMs(nowMs, -3));
+    const raw = records.filter(r => recordTimeMs(r) >= cutoff && recordTimeMs(r) <= nowMs);
+    const grouped = averageGroup(raw, beginningOfLocalMonth);
+    const firstBucket = grouped.length ? recordTimeMs(grouped[0]) : beginningOfLocalMonth(nowMs);
+    const lastBucket = grouped.length ? recordTimeMs(grouped[grouped.length-1]) : beginningOfLocalMonth(nowMs);
+    xMax = addMonthsMs(lastBucket, 1);
+    const threeMonthSpan = addMonthsMs(xMax, -3);
+    xMin = (xMax - firstBucket) >= (xMax - threeMonthSpan) * 0.70 ? firstBucket : threeMonthSpan;
+    visible = grouped.filter(r => recordTimeMs(r) >= xMin && recordTimeMs(r) <= xMax);
+    label = 'monthly view: last 3-month scale, averaged by month and anchored from the prior value';
   }
   const history = displayAnchorRecord(records, xMin, visible);
   return { history, xRange:{ min:xMin, max:xMax, label } };

@@ -1,71 +1,25 @@
-# AUD Exchange Dashboard
+# AUD Exchange Rate Dashboard
 
-A lightweight exchange-rate dashboard for tracking the strength of the Australian Dollar (AUD) against up to three selected currencies.
+Static GitHub Pages version of the AUD exchange rate dashboard.
 
-Designed for monitoring exchange-rate trends over time, identifying favourable conversion opportunities, and maintaining a local history of exchange-rate movements.
+## Files
 
-## Features
+- `index.html` - the dashboard page
+- `manifest.webmanifest` - Android/PWA metadata
+- `icons/icon-192.png` and `icons/icon-512.png` - home-screen icons
+- `.nojekyll` - keeps GitHub Pages from processing the site
 
-- Current exchange rates with weekly movement indicators (🟢 ↑, 🔴 ↓, ⚪ →)
-- 90-day best rate tracking and gap-to-best calculations
-- Multi-axis trend graph with Hourly, Daily, Weekly and Monthly views
-- Local history storage with Import and Export support
+## Upload from phone
 
-## Running the Dashboard
+1. Create a new GitHub repository.
+2. Unzip this folder.
+3. Upload all files and folders to the repository root.
+4. In GitHub, enable Pages from the `main` branch, root folder.
+5. Open the GitHub Pages URL in Brave.
+6. Use Brave menu -> Add to Home screen.
 
-### Local HTML Version
+## Notes
 
-1. Download the latest dashboard HTML file.
-2. Save it anywhere on your device.
-3. Open the file in your preferred browser.
-
-No installation is required.
-
-## Home Screen and Desktop Shortcuts
-
-### Android
-
-For the best experience, use the GitHub Pages deployment.
-
-1. Open the dashboard URL in Brave, Chrome or Samsung Internet.
-2. Open the browser menu.
-3. Select **Add to Home Screen**.
-4. Confirm the shortcut name.
-
-The dashboard can then be launched like a normal application from your home screen.
-
-### Windows
-
-Chrome, Brave and Edge support installing the dashboard as an application.
-
-1. Open the dashboard URL.
-2. Open the browser menu.
-3. Select **Install App** or **More Tools → Create Shortcut**.
-4. Enable **Open as Window** if available.
-5. Create the shortcut.
-
-The dashboard can then be pinned to the taskbar or Start Menu.
-
-## Data Storage
-
-All data is stored locally within your browser using Local Storage.
-
-Stored information includes:
-
-- Historical exchange-rate data
-- Selected currencies
-- Dashboard preferences
-
-Data remains on the device unless browser storage is cleared or a different browser is used.
-
-## Import and Export
-
-### Export
-
-Use the **Export** button to create a JSON backup of all stored history.
-
-### Import
-
-Use the **Import** button to restore a previous backup.
-
-Imported data is automatically merged and sorted chronologically.
+- History is stored in the browser local storage for the GitHub Pages URL.
+- If you previously used the local-file version, export history there and import it into this hosted version.
+- Rates use Frankfurter reference rates, not guaranteed Wise-exact rates.
